@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gesture OS</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+        
+        * {
+            font-family: 'Inter', sans-serif;
+        }
+        
+        .window {
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        
+        .window.minimized {
+            transform: scale(0) translateY(100px);
+            opacity: 0;
+        }
+        
+        .cursor {
+            position: fixed;
+            width: 20px;
+            height: 20px;
+            background: #3b82f6;
+            border-radius: 50%;
+            pointer-events: none;
+            z-index: 9999;
+            transition: all 0.1s ease;
+            box-shadow: 0 0 20px rgba(59, 130, 246, 0.5);
+        }
+        
+        .cursor.clicking {
+            background: #ef4444;
+            transform: scale(1.5);
+        }
+        
+        .gesture-indicator {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 10px 15px;
+            border-radius: 8px;
+            font-size: 14px;
+            z-index: 10000;
+            transition: all 0.3s ease;
+        }
+        
+        .volume-slider {
+            position: fixed;
+            top: 50%;
+            right: 30px;
+            transform: translateY(-50%);
+            background: rgba(0, 0, 0, 0.8);
+            padding: 20px;
+            border-radius: 12px;
+            z-index: 10000;
+            transition: all 0.3s ease;
+        }
+        
+        .volume-slider.hidden {
+            opacity: 0;
+            transform: translateY(-50%) translateX(100px);
+        }
+        
+        .app-icon {
+            transition: all 0.2s ease;
+        }
+        
+        .app-icon:hover {
+            transform: scale(1.1);
+        }
+        
+        .desktop-wallpaper {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+        
+        .taskbar {
+            backdrop-filter: blur(20px);
+            background: rgba(255, 255, 255, 0.1);
+            border-top: 1px solid rgba(255, 255, 255, 0.2);
+        }
+        
+        .window-content {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+        }
+    </style>
+</head>
+<body class="overflow-hidden">
+    <!-- Desktop Environment -->
+    <div id="desktop" class="desktop-wallpaper w-screen h-screen relative">
+        <!-- Webcam Feed (Hidden) -->
+        <video id="webcam" class="absolute top-4 left-4 w-48 h-36 rounded-lg border-2 border-white/20 z-50" autoplay muted></video>
+        <canvas id="canvas" class="absolute top-4 left-4 w-48 h-36 rounded-lg z-50"></canvas>
+        
+        <!-- Custom Cursor -->
+        <div id="cursor" class="cursor"></div>
+        
+        <!-- Gesture Indicator -->
+        <div id="gestureIndicator" class="gesture-indicator">
+            Gesture: None
+        </div>
+        
+        <!-- Volume Slider -->
+        <div id="volumeSlider" class="volume-slider hidden">
+            <div class="text-white text-sm mb-2">Volume</div>
+            <div class="w-4 h-32 bg-gray-600 rounded-full relative">
+                <div id="volumeLevel" class="absolute bottom-0 w-full bg-blue-500 rounded-full transition-all duration-300" style="height: 50%"></div>
+            </div>
+            <div id="volumeText" class="text-white text-xs mt-2 text-center">50%</div>
+        </div>
+        
+        <!-- Desktop Icons -->
+        <div class="absolute top-8 left-8 grid grid-cols-2 gap-6">
+            <div class="app-icon cursor-pointer text-center" data-app="notepad">
+                <div class="w-16 h-16 bg-yellow-400 rounded-xl flex items-center justify-center mb-2 shadow-lg">
+                    <svg class="w-8 h-8 text-white" fill="currentColor" viewBox="0 0 20 20">
+                        <path d="M4 4a2 2 0 00-2 2v8a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2H4zm0 2h12v8H4V6z"/>
+                    </svg>
+                </div>
+                <span class="text-white text-sm font-medium">Notepad</span>
+            </div>
+            
+            <div class="app-icon cursor-pointer text-center" data-app="music">
+                <div class="w-16 h-16 bg-purple-500 rounded-xl flex items-center justify-center mb-2 shadow-lg">
+                    <svg class="w-8 h-8 text-white" fill="currentColor" viewBox="0 0 20 20">
+                        <path d="M18 3a1 1 0 00-1.196-.98l-10 2A1 1 0 006 5v9.114A4.369 4.369 0 005 14c-1.657 0-3 .895-3 2s1.343 2 3 2 3-.895 3-2V7.82l8-1.6v5.894A4.37 4.37 0 0015 12c-1.657 0-3 .895-3 2s1.343 2 3 2 3-.895 3-2V3z"/>
+                    </svg>
+                </div>
+                <span class="text-white text-sm font-medium">Music</span>
+            </div>
+            
+            <div class="app-icon cursor-pointer text-center" data-app="browser">
+                <div class="w-16 h-16 bg-blue-500 rounded-xl flex items-center justify-center mb-2 shadow-lg">
+                    <svg class="w-8 h-8 text-white" fill="currentColor" viewBox="0 0 20 20">
+                        <path d="M3 4a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1V4zM3 10a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H4a1 1 0 01-1-1v-6zM14 9a1 1 0 00-1 1v6a1 1 0 001 1h2a1 1 0 001-1v-6a1 1 0 00-1-1h-2z"/>
+                    </svg>
+                </div>
+                <span class="text-white text-sm font-medium">Browser</span>
+            </div>
+            
+            <div class="app-icon cursor-pointer text-center" data-app="gallery">
+                <div class="w-16 h-16 bg-green-500 rounded-xl flex items-center justify-center mb-2 shadow-lg">
+                    <svg class="w-8 h-8 text-white" fill="currentColor" viewBox="0 0 20 20">
+                        <path fill-rule="evenodd" d="M4 3a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V5a2 2 0 00-2-2H4zm12 12H4l4-8 3 6 2-4 3 6z"/>
+                    </svg>
+                </div>
+                <span class="text-white text-sm font-medium">Gallery</span>
+            </div>
+            
+            <div class="app-icon cursor-pointer text-center" data-app="settings">
+                <div class="w-16 h-16 bg-gray-600 rounded-xl flex items-center justify-center mb-2 shadow-lg">
+                    <svg class="w-8 h-8 text-white" fill="currentColor" viewBox="0 0 20 20">
+                        <path fill-rule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z"/>
+                    </svg>
+                </div>
+                <span class="text-white text-sm font-medium">Settings</span>
+            </div>
+            
+            <div class="app-icon cursor-pointer text-center" data-app="calculator">
+                <div class="w-16 h-16 bg-red-500 rounded-xl flex items-center justify-center mb-2 shadow-lg">
+                    <svg class="w-8 h-8 text-white" fill="currentColor" viewBox="0 0 20 20">
+                        <path d="M6 2a2 2 0 00-2 2v12a2 2 0 002 2h8a2 2 0 002-2V4a2 2 0 00-2-2H6zM6 4h8v3H6V4zm0 5h2v2H6V9zm4 0h2v2h-2V9zm4 0h2v2h-2V9zM6 13h2v2H6v-2zm4 0h2v2h-2v-2zm4 0h2v2h-2v-2z"/>
+                    </svg>
+                </div>
+                <span class="text-white text-sm font-medium">Calculator</span>
+            </div>
+        </div>
+        
+        <!-- Taskbar -->
+        <div class="taskbar absolute bottom-0 left-0 right-0 h-16 flex items-center justify-between px-6">
+            <div class="flex items-center space-x-4">
+                <div class="text-white font-semibold">Gesture OS</div>
+                <div id="clock" class="text-white/80 text-sm"></div>
+            </div>
+            <div class="flex items-center space-x-2" id="taskbarApps">
+                <!-- Running apps will appear here -->
+            </div>
+        </div>
+        
+        <!-- Application Windows -->
+        
+        <!-- Notepad Window -->
+        <div id="notepadWindow" class="window absolute top-20 left-1/4 w-96 h-80 bg-white rounded-lg shadow-2xl hidden z-40">
+            <div class="window-header bg-gray-100 p-3 rounded-t-lg flex justify-between items-center border-b">
+                <span class="font-semibold text-gray-800">Notepad</span>
+                <button class="close-btn text-gray-500 hover:text-red-500 text-xl font-bold">&times;</button>
+            </div>
+            <div class="window-content p-4 h-full">
+                <textarea class="w-full h-full resize-none border-none outline-none" placeholder="Start typing..."></textarea>
+            </div>
+        </div>
+        
+        <!-- Music Player Window -->
+        <div id="musicWindow" class="window absolute top-32 left-1/3 w-80 h-64 bg-white rounded-lg shadow-2xl hidden z-40">
+            <div class="window-header bg-gray-100 p-3 rounded-t-lg flex justify-between items-center border-b">
+                <span class="font-semibold text-gray-800">Music Player</span>
+                <button class="close-btn text-gray-500 hover:text-red-500 text-xl font-bold">&times;</button>
+            </div>
+            <div class="window-content p-6 h-full">
+                <div class="text-center">
+                    <div class="w-20 h-20 bg-purple-500 rounded-lg mx-auto mb-4 flex items-center justify-center">
+                        <svg class="w-10 h-10 text-white" fill="currentColor" viewBox="0 0 20 20">
+                            <path d="M8 5v10l7-5-7-5z"/>
+                        </svg>
+                    </div>
+                    <h3 class="font-semibold text-gray-800">Awesome Song</h3>
+                    <p class="text-gray-600 text-sm">Artist Name</p>
+                    <div class="mt-4 bg-gray-200 rounded-full h-2">
+                        <div class="bg-purple-500 h-2 rounded-full w-1/3"></div>
+                    </div>
+                    <div class="flex justify-center mt-4 space-x-4">
+                        <button class="text-gray-600 hover:text-purple-500">⏮</button>
+                        <button class="text-gray-600 hover:text-purple-500 text-2xl">⏯</button>
+                        <button class="text-gray-600 hover:text-purple-500">⏭</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Browser Window -->
+        <div id="browserWindow" class="window absolute top-16 left-1/2 w-[600px] h-96 bg-white rounded-lg shadow-2xl hidden z-40">
+            <div class="window-header bg-gray-100 p-3 rounded-t-lg flex justify-between items-center border-b">
+                <span class="font-semibold text-gray-800">Web Browser</span>
+                <button class="close-btn text-gray-500 hover:text-red-500 text-xl font-bold">&times;</button>
+            </div>
+            <div class="window-content h-full">
+                <div class="p-3 bg-gray-50 border-b flex items-center space-x-2">
+                    <div class="flex-1 bg-white rounded px-3 py-1 text-sm text-gray-600">https://www.google.com</div>
+                    <button class="text-blue-500 hover:text-blue-700">Go</button>
+                </div>
+                <iframe src="https://www.google.com" class="w-full h-full border-none"></iframe>
+            </div>
+        </div>
+        
+        <!-- Gallery Window -->
+        <div id="galleryWindow" class="window absolute top-24 left-1/4 w-[500px] h-80 bg-white rounded-lg shadow-2xl hidden z-40">
+            <div class="window-header bg-gray-100 p-3 rounded-t-lg flex justify-between items-center border-b">
+                <span class="font-semibold text-gray-800">Image Gallery</span>
+                <button class="close-btn text-gray-500 hover:text-red-500 text-xl font-bold">&times;</button>
+            </div>
+            <div class="window-content p-4 h-full">
+                <div class="grid grid-cols-3 gap-4 h-full">
+                    <div class="bg-gradient-to-br from-blue-400 to-purple-500 rounded-lg flex items-center justify-center">
+                        <span class="text-white font-semibold">Image 1</span>
+                    </div>
+                    <div class="bg-gradient-to-br from-green-400 to-blue-500 rounded-lg flex items-center justify-center">
+                        <span class="text-white font-semibold">Image 2</span>
+                    </div>
+                    <div class="bg-gradient-to-br from-pink-400 to-red-500 rounded-lg flex items-center justify-center">
+                        <span class="text-white font-semibold">Image 3</span>
+                    </div>
+                    <div class="bg-gradient-to-br from-yellow-400 to-orange-500 rounded-lg flex items-center justify-center">
+                        <span class="text-white font-semibold">Image 4</span>
+                    </div>
+                    <div class="bg-gradient-to-br from-indigo-400 to-purple-500 rounded-lg flex items-center justify-center">
+                        <span class="text-white font-semibold">Image 5</span>
+                    </div>
+                    <div class="bg-gradient-to-br from-teal-400 to-green-500 rounded-lg flex items-center justify-center">
+                        <span class="text-white font-semibold">Image 6</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Settings Window -->
+        <div id="settingsWindow" class="window absolute top-28 left-1/3 w-96 h-80 bg-white rounded-lg shadow-2xl hidden z-40">
+            <div class="window-header bg-gray-100 p-3 rounded-t-lg flex justify-between items-center border-b">
+                <span class="font-semibold text-gray-800">Settings</span>
+                <button class="close-btn text-gray-500 hover:text-red-500 text-xl font-bold">&times;</button>
+            </div>
+            <div class="window-content p-6 h-full">
+                <div class="space-y-4">
+                    <div class="flex justify-between items-center">
+                        <span class="text-gray-700">Dark Mode</span>
+                        <label class="relative inline-flex items-center cursor-pointer">
+                            <input type="checkbox" class="sr-only peer">
+                            <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                        </label>
+                    </div>
+                    <div class="flex justify-between items-center">
+                        <span class="text-gray-700">Notifications</span>
+                        <label class="relative inline-flex items-center cursor-pointer">
+                            <input type="checkbox" class="sr-only peer" checked>
+                            <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                        </label>
+                    </div>
+                    <div class="flex justify-between items-center">
+                        <span class="text-gray-700">Auto Updates</span>
+                        <label class="relative inline-flex items-center cursor-pointer">
+                            <input type="checkbox" class="sr-only peer" checked>
+                            <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                        </label>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Calculator Window -->
+        <div id="calculatorWindow" class="window absolute top-20 left-2/3 w-64 h-80 bg-white rounded-lg shadow-2xl hidden z-40">
+            <div class="window-header bg-gray-100 p-3 rounded-t-lg flex justify-between items-center border-b">
+                <span class="font-semibold text-gray-800">Calculator</span>
+                <button class="close-btn text-gray-500 hover:text-red-500 text-xl font-bold">&times;</button>
+            </div>
+            <div class="window-content p-4 h-full">
+                <div class="bg-black text-white p-3 rounded mb-3 text-right text-xl font-mono">0</div>
+                <div class="grid grid-cols-4 gap-2">
+                    <button class="bg-gray-200 hover:bg-gray-300 p-3 rounded font-semibold">C</button>
+                    <button class="bg-gray-200 hover:bg-gray-300 p-3 rounded font-semibold">±</button>
+                    <button class="bg-gray-200 hover:bg-gray-300 p-3 rounded font-semibold">%</button>
+                    <button class="bg-orange-500 hover:bg-orange-600 text-white p-3 rounded font-semibold">÷</button>
+                    <button class="bg-gray-300 hover:bg-gray-400 p-3 rounded font-semibold">7</button>
+                    <button class="bg-gray-300 hover:bg-gray-400 p-3 rounded font-semibold">8</button>
+                    <button class="bg-gray-300 hover:bg-gray-400 p-3 rounded font-semibold">9</button>
+                    <button class="bg-orange-500 hover:bg-orange-600 text-white p-3 rounded font-semibold">×</button>
+                    <button class="bg-gray-300 hover:bg-gray-400 p-3 rounded font-semibold">4</button>
+                    <button class="bg-gray-300 hover:bg-gray-400 p-3 rounded font-semibold">5</button>
+                    <button class="bg-gray-300 hover:bg-gray-400 p-3 rounded font-semibold">6</button>
+                    <button class="bg-orange-500 hover:bg-orange-600 text-white p-3 rounded font-semibold">-</button>
+                    <button class="bg-gray-300 hover:bg-gray-400 p-3 rounded font-semibold">1</button>
+                    <button class="bg-gray-300 hover:bg-gray-400 p-3 rounded font-semibold">2</button>
+                    <button class="bg-gray-300 hover:bg-gray-400 p-3 rounded font-semibold">3</button>
+                    <button class="bg-orange-500 hover:bg-orange-600 text-white p-3 rounded font-semibold">+</button>
+                    <button class="bg-gray-300 hover:bg-gray-400 p-3 rounded font-semibold col-span-2">0</button>
+                    <button class="bg-gray-300 hover:bg-gray-400 p-3 rounded font-semibold">.</button>
+                    <button class="bg-orange-500 hover:bg-orange-600 text-white p-3 rounded font-semibold">=</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script src="js/app.js"></script>
+</body>
+</html>
